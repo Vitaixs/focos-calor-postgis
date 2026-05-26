@@ -1,0 +1,13 @@
+CREATE TABLE focos (
+    id UUID PRIMARY KEY,
+    lat DOUBLE PRECISION,
+    lon DOUBLE PRECISION,
+    data_hora_gmt TIMESTAMP,
+    municipio VARCHAR(100),
+    estado VARCHAR(100),
+    bioma VARCHAR(100),
+    geom GEOMETRY(Point, 4326)
+);
+
+UPDATE focos
+SET geom = ST_SetSRID(ST_MakePoint(lon, lat), 4326);

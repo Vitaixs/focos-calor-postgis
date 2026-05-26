@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mapa de Focos de Calor</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw/dist/leaflet.draw.css"/>
+
+    <style>
+        #map {
+            height: 90vh;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Mapa de Focos de Calor</h2>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-draw/dist/leaflet.draw.js"></script>
+
+    <script>
+        var map = L.map('map').setView([-14.235, -51.925], 4);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        var drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        var drawControl = new L.Control.Draw({
+            draw: {
+                polygon: true,
+                rectangle: true,
+                circle: false,
+                marker: false,
+                polyline: false,
+                circlemarker: false
+            },
+            edit: {
+                featureGroup: drawnItems
+            }
+        });
+
+        map.addControl(drawControl);
+
+        map.on(L.Draw.Event.CREATED, function (e) {
+            var layer = e.layer;
+            drawnItems.addLayer(layer);
+
+            var latlngs = layer.getLatLngs()[0];
+            var coordinates = latlngs.map(function(point) {
+                return [point.lng, point.lat];
+            });
+
+            fetch("/contar", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    coordinates: coordinates
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert("Número de focos na área: " + data.quantidade);
+            });
+        });
+    </script>
+
+</body>
+</html>
