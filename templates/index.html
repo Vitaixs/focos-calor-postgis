@@ -1,28 +1,37 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
-    <title>Mapa de Focos de Calor</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-width=1.0">
+    <title>Monitoramento de Focos de Calor</title>
 
+    <link
+  rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"
+/>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
     <link rel="stylesheet" href="https://unpkg.com/leaflet-draw/dist/leaflet.draw.css"/>
-
-    <style>
-        #map {
-            height: 90vh;
-            width: 100%;
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2">
 </head>
 <body>
 
-    <h2>Mapa de Focos de Calor</h2>
+
+    <div class="sidebar-direita">
+        <h3>Histórico de Áreas</h3>
+        <ul id="lista-historico"></ul>
+    </div>
+
+    <div id="resultado-card">Aguarde...</div>
+
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-draw/dist/leaflet.draw.js"></script>
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
 
-    <script>
-        var map = L.map('map').setView([-14.235, -51.925], 4);
+<script>
+        var map = L.map('map').setView([-14.235, -51.925], 5);
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap'
@@ -31,46 +40,110 @@
         var drawnItems = new L.FeatureGroup();
         map.addLayer(drawnItems);
 
-        var drawControl = new L.Control.Draw({
-            draw: {
-                polygon: true,
-                rectangle: true,
-                circle: false,
-                marker: false,
-                polyline: false,
-                circlemarker: false
-            },
-            edit: {
-                featureGroup: drawnItems
-            }
-        });
+        var resultadoCard = document.getElementById('resultado-card');
+        resultadoCard.style.display = 'block';
 
+        fetch("/pontos")
+            .then(response => response.json())
+            .then(pontos => {
+                L.heatLayer(pontos, {
+                    radius: 8, blur: 10, maxZoom: 5,
+                    gradient: {0.4: 'blue', 0.6: 'yellow', 0.8: 'orange', 1.0: 'red'}
+                }).addTo(map);
+                resultadoCard.style.display = 'none';
+            })
+            .catch(error => { resultadoCard.innerText = "Erro ao carregar os pontos."; });
+
+        var drawControl = new L.Control.Draw({
+            position: 'topleft',
+            draw: {
+                polygon: { shapeOptions: { color: '#00d2ff', weight: 3, fillColor: '#007bff', fillOpacity: 0.25 } },
+                rectangle: { shapeOptions: { color: '#00d2ff', weight: 3, fillColor: '#007bff', fillOpacity: 0.25 } },
+                circle: false, marker: false, polyline: false, circlemarker: false
+            },
+            edit: { featureGroup: drawnItems }
+        });
         map.addControl(drawControl);
 
-        map.on(L.Draw.Event.CREATED, function (e) {
-            var layer = e.layer;
-            drawnItems.addLayer(layer);
+        var listaHistorico = document.getElementById('lista-historico');
+        var historicoPoligonos = []; 
 
+        // Função única para calcular dados e atualizar/criar os cards no histórico
+        function processarArea(layer, liElemento = null) {
             var latlngs = layer.getLatLngs()[0];
-            var coordinates = latlngs.map(function(point) {
-                return [point.lng, point.lat];
-            });
+            var areaMetros = L.GeometryUtil.geodesicArea(latlngs);
+            var areaKm2 = (areaMetros / 1000000).toFixed(2);
+
+            // Se for um card novo, cria. Se for edição, atualiza o existente.
+            var li = liElemento;
+            if (!li) {
+                li = document.createElement('li');
+                listaHistorico.insertBefore(li, listaHistorico.firstChild);
+                historicoPoligonos.push({ layer: layer, elementoDOM: li });
+            }
+            
+            li.innerHTML = `⏳ Calculando...<br>📏 ${areaKm2} km²`;
+
+            resultadoCard.style.display = 'block';
+            resultadoCard.style.background = '#2c3e50';
+            resultadoCard.innerText = 'Consultando PostGIS...';
+
+            var coordinates = latlngs.map(point => [point.lng, point.lat]);
 
             fetch("/contar", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    coordinates: coordinates
-                })
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ coordinates: coordinates })
             })
             .then(response => response.json())
             .then(data => {
-                alert("Número de focos na área: " + data.quantidade);
+                li.innerHTML = `🔥 Focos: ${data.quantidade}<br>📏 ${areaKm2} km²`;
+                resultadoCard.style.display = 'none';
+            })
+            .catch(error => {
+                li.innerHTML = `❌ Erro na consulta<br>📏 ${areaKm2} km²`;
+                resultadoCard.style.display = 'none';
+            });
+        }
+
+        // Evento 1: Criação de nova área
+        map.on(L.Draw.Event.CREATED, function (e) {
+            var layer = e.layer;
+            drawnItems.addLayer(layer); 
+            processarArea(layer);
+        });
+
+        // Evento 2: Edição das áreas existentes (Atualiza área e focos automaticamente)
+        map.on(L.Draw.Event.EDITED, function (e) {
+            e.layers.eachLayer(function (layer) {
+                var correspondencia = historicoPoligonos.find(item => item.layer === layer);
+                if (correspondencia) {
+                    processarArea(layer, correspondencia.elementoDOM);
+                }
             });
         });
-    </script>
 
+        // Evento 3: Remoção de áreas via Lixeira da barra de ferramentas
+        map.on(L.Draw.Event.DELETED, function (e) {
+            e.layers.eachLayer(function (layer) {
+                var indice = historicoPoligonos.findIndex(item => item.layer === layer);
+                if (indice !== -1) {
+                    historicoPoligonos[indice].elementoDOM.remove();
+                    historicoPoligonos.splice(indice, 1);
+                }
+            });
+        });
+
+        // Evento 4: Remoção via Atalho CTRL + Z
+        document.addEventListener('keydown', function(event) {
+            if (event.ctrlKey && (event.key === 'z' || event.key === 'Z')) {
+                if (historicoPoligonos.length > 0) {
+                    var ultimoItem = historicoPoligonos.pop();
+                    drawnItems.removeLayer(ultimoItem.layer);
+                    ultimoItem.elementoDOM.remove();
+                }
+            }
+        });
+    </script>
 </body>
 </html>

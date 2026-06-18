@@ -3,7 +3,7 @@ from sqlalchemy import create_engine, text
 
 app = Flask(__name__)
 
-engine = create_engine("postgresql://postgres:123@localhost:5432/focosdb")
+engine = create_engine("postgresql://postgres:admin@localhost:5433/focosdb")
 
 @app.route("/")
 def home():
@@ -32,6 +32,28 @@ def contar():
         resultado = conn.execute(query, {"wkt": wkt}).scalar()
 
     return jsonify({"quantidade": resultado})
+
+@app.route("/pontos", methods=["GET"])
+def pontos():
+    try:
+        # Busca latitude e longitude
+        query = text("SELECT lat, lon FROM focos;")
+        
+        with engine.connect() as conn:
+            resultado = conn.execute(query).fetchall()
+        
+        # Converte para lista do Leaflet
+        lista_coordenadas = [[row[0], row[1]] for row in resultado]
+        
+        # Print de depuração (vai aparecer no terminal do VS Code!)
+        print(f"SUCESSO: Enviando {len(lista_coordenadas)} pontos para o mapa!")
+        
+        return jsonify(lista_coordenadas)
+    
+    except Exception as e:
+        print(f"ERRO NA ROTA /pontos: {e}")
+        return jsonify([])
+
 
 if __name__ == "__main__":
     app.run(debug=True)
